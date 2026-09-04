@@ -32,6 +32,11 @@ The objective is not simply to move data between systems. The project demonstrat
 ---
 
 ## Platform Architecture
+## Platform Architecture
+
+![BritMart Retail Data Platform Architecture](docs/architecture/britmart-platform-architecture.png)
+
+*Figure 1 — End-to-end architecture of the BritMart Retail Data Platform, covering multi-source ingestion, metadata-driven orchestration, Medallion Lakehouse processing, dimensional modelling, analytics, data quality and operational observability.*
 
 ```text
 ┌──────────────────────────────── SOURCE SYSTEMS ────────────────────────────────┐
