@@ -1,199 +1,328 @@
 # BritMart Retail Data Platform
 
-> **Production-oriented, multi-source retail data platform built with Microsoft Fabric, PySpark, Delta Lake and Power BI, demonstrating metadata-driven ingestion, incremental processing, data quality, reconciliation and operational observability.**
+> **Project status:** Complete. The platform has been implemented and validated end-to-end across multi-source ingestion, Bronze, Silver, Gold, data quality, reconciliation, operational monitoring, semantic modelling and Power BI reporting. Final GitHub portfolio documentation is being completed.
 
-> **Project status:** Work in progress — core Bronze, Silver and Gold engineering layers are implemented and validated. Final end-to-end orchestration, documentation and deployment evidence are being completed.
+BritMart Retail Data Platform is a production-oriented reference implementation of a modern retail data platform built around Microsoft Fabric.
 
----
+The project models a fictional UK omnichannel retailer operating physical stores and e-commerce channels, supported by distribution centres, suppliers, procurement processes and logistics operations.
 
-## Overview
-
-BritMart is a portfolio reference implementation of an end-to-end data platform for a fictional UK retailer operating across physical stores, e-commerce, warehousing, procurement and logistics.
-
-The platform integrates heterogeneous operational data from **REST APIs, SQL Server, AWS S3, SharePoint and Azure Blob Storage** into a governed Microsoft Fabric Lakehouse architecture.
-
-The objective is not simply to move data between systems. The project demonstrates engineering patterns expected in production data platforms:
-
-- Metadata-driven ingestion
-- Parameterised orchestration
-- Full and incremental processing
-- Watermark-based ingestion
-- Idempotent Delta Lake processing
-- Schema enforcement and controlled schema drift
-- Deduplication and business-key validation
-- Data quality and referential-integrity controls
-- Cross-layer reconciliation
-- Audit logging and operational monitoring
-- Quarantine of invalid monitoring records
-- Dimensional modelling
-- Semantic-model refresh
-- Failure diagnosis and recovery
+The objective was not simply to build dashboards. The platform was designed to demonstrate how heterogeneous operational systems can be integrated into a governed, metadata-driven analytical platform with incremental processing, data-quality controls, reconciliation, auditability, monitoring and dimensional modelling.
 
 ---
+## Table of Contents
 
-## Platform Architecture
-## Platform Architecture
+- [Architecture](#architecture)
+- [Source Systems](#source-systems)
+- [Supplier Source System — FastAPI & PostgreSQL](#supplier-source-system--fastapi--postgresql)
+- [Metadata-Driven Ingestion](#metadata-driven-ingestion)
+- [Control Framework](#control-framework)
+- [Bronze Layer](#bronze-layer)
+- [Silver Layer](#silver-layer)
+- [Silver Data Quality](#silver-data-quality)
+- [Silver Reconciliation](#silver-reconciliation)
+- [Gold Analytical Layer](#gold-analytical-layer)
+- [Operational Monitoring](#operational-monitoring)
+- [End-to-End Orchestration](#end-to-end-orchestration)
+- [Semantic Model](#semantic-model)
+- [Power BI Reporting](#power-bi-reporting)
+- [Git & Engineering Workflow](#git--engineering-workflow)
+- [Technology Stack](#technology-stack)
+- [Repository Structure](#repository-structure)
+- [Key Engineering Decisions](#key-engineering-decisions)
+- [Security](#security)
+- [Portfolio Scope](#portfolio-scope)
 
-![BritMart Retail Data Platform Architecture](docs/architecture/britmart-platform-architecture.png)
+## Architecture
 
-*Figure 1 — End-to-end architecture of the BritMart Retail Data Platform, covering multi-source ingestion, metadata-driven orchestration, Medallion Lakehouse processing, dimensional modelling, analytics, data quality and operational observability.*
+![BritMart Retail Data Platform Architecture](docs/evidence/01-platform-architecture.png)
+
+The platform follows a Medallion Architecture:
 
 ```text
-┌──────────────────────────────── SOURCE SYSTEMS ────────────────────────────────┐
-│                                                                                │
-│  Supplier API       Warehouse SQL       Store POS       E-commerce   Logistics │
-│  REST / FastAPI     SQL Server          SharePoint      AWS S3       Azure Blob │
-│                                                                                │
-└──────────┬────────────────┬─────────────────┬──────────────┬─────────────┬───────┘
-           │                │                 │              │             │
-           └────────────────┴──────────┬──────┴──────────────┴─────────────┘
-                                      │
-                                      ▼
-                         METADATA-DRIVEN INGESTION
-                    Control Tables • Configuration • Watermarks
-                         Audit Logging • Run Tracking
-                                      │
-                                      ▼
-                             ┌─────────────────┐
-                             │     BRONZE      │
-                             │   Raw Landing   │
-                             └────────┬────────┘
-                                      │
-                                      ▼
-                             ┌─────────────────┐
-                             │     SILVER      │
-                             │ Clean • Conform │
-                             │ Validate • MERGE│
-                             └────────┬────────┘
-                                      │
-                           Data Quality + Reconciliation
-                                      │
-                                      ▼
-                             ┌─────────────────┐
-                             │      GOLD       │
-                             │ Dimensions/Facts│
-                             └────────┬────────┘
-                                      │
-                            Gold Quality Controls
-                                      │
-                         ┌────────────┴────────────┐
-                         ▼                         ▼
-                 Semantic Model           Monitoring Mart
-                         │
-                         ▼
-                      Power BI
+Operational Source Systems
+        ↓
+Metadata-Driven Ingestion
+        ↓
+Bronze — Raw / Source-Aligned
+        ↓
+Silver — Validated / Conformed
+        ↓
+Gold — Dimensional / Analytical
+        ↓
+Semantic Model
+        ↓
+Power BI
 ```
 
-> A detailed architecture diagram and component-level documentation will be maintained under `docs/architecture/`.
+The architecture intentionally separates:
+
+- source-system integration
+- ingestion orchestration
+- raw data persistence
+- transformation and conformance
+- data quality
+- reconciliation
+- analytical modelling
+- operational monitoring
+- business reporting
 
 ---
 
 ## Source Systems
 
-| Business Domain | Source Technology | Representative Data |
-|---|---|---|
-| Supplier & Procurement | REST API / FastAPI | Suppliers, purchase orders, shipments, supplier performance |
-| Warehouse | SQL Server | Distribution centres, goods receipts, inventory movements |
-| Store Sales | SharePoint | POS transaction files |
-| E-commerce | AWS S3 | Orders, payments, fulfilment events |
-| Logistics | Azure Blob Storage | Micro-batch logistics event files |
+BritMart integrates five heterogeneous source families.
 
-**Note:** Logistics is intentionally described as a **micro-batch/file-based event feed**, rather than true streaming.
+| Business Domain | Source Technology | Example Data |
+|---|---|---|
+| Supplier & Procurement | FastAPI + PostgreSQL REST API | suppliers, purchase orders, shipments, supplier performance |
+| Warehouse | SQL Server | distribution centres, goods receipts, inventory movements |
+| Store Sales | SharePoint files | point-of-sale transactions, transaction lines, payments |
+| E-commerce | AWS S3 | orders, order lines, payments, fulfilment events |
+| Logistics | Azure Blob Storage | logistics event files |
+
+The logistics source is implemented as a **micro-batch/file-based event feed** rather than a true streaming architecture.
 
 ---
 
-## Metadata-Driven Ingestion
+# Supplier Source System — FastAPI & PostgreSQL
 
-The ingestion framework separates **configuration from execution logic**.
+A separate operational supplier and procurement application was developed to provide a realistic REST API source for the data platform.
 
-Control metadata determines:
+The source system uses:
 
-- Source system
-- Entity
-- Child ingestion pipeline
-- Load type
-- Execution sequence
-- Source path
-- Pagination configuration
-- Watermark column
-- Tie-breaker column
-- Primary key
+- FastAPI
+- PostgreSQL
+- Python
+- REST endpoints
+- API-key authentication
+- pagination
+- relational operational models
+- generated retail procurement data
+
+The application exposes implemented endpoints for domains including:
+
+- suppliers
+- purchase orders
+- shipments
+- supplier performance events and scorecards
+
+The API is maintained separately from the analytical platform so that the project reflects a realistic separation between an operational source system and a downstream data platform.
+
+**Source-system repository:**  
+[BritMart Supplier API](https://github.com/Mayorpluz1/britmart-supplier-api)
+
+### API implementation evidence
+
+![BritMart Supplier API](docs/evidence/04-supplier-api-swagger.png)
+
+Fabric consumes the API through authenticated REST ingestion:
+
+```text
+PostgreSQL
+    ↓
+FastAPI
+    ↓
+Authenticated REST API
+    ↓
+Fabric ingestion pipeline
+    ↓
+Bronze JSON
+    ↓
+Silver Delta tables
+```
+
+![Supplier API Bronze Ingestion](docs/evidence/05-supplier-api-bronze-ingestion.png)
+
+---
+
+# Metadata-Driven Ingestion
+
+The Bronze ingestion framework is metadata-driven rather than being implemented as a separate hard-coded orchestration flow for every entity.
+
+![Metadata Driven Master Pipeline](docs/evidence/02-master-metadata-pipeline.png)
+
+The master pipeline:
+
+```text
+SET_Pipeline_Run_ID
+        ↓
+SCR_Pipeline_Run_Start
+        ↓
+LKP_Active_Entities
+        ↓
+FE_Process_Entities
+        ↓
+SW_Route_Source_System
+        ↓
+Source-Specific Child Pipeline
+        ↓
+Audit Success / Failure
+```
+
+Metadata determines:
+
+- source system
+- entity
+- load type
+- execution sequence
+- source path
+- pagination configuration
+- watermark column
+- tie-breaker column
+- business/primary keys
 - Bronze destination
-- Active/inactive status
+- file format
+- active/inactive status
 
-A master pipeline reads this metadata and dynamically routes each entity to the appropriate source-specific ingestion pipeline.
+This separates **what should be processed** from **how a particular source technology is ingested**.
+
+---
+
+# Control Framework
+
+The control framework is implemented in the Fabric Warehouse and contains six operational control tables.
+
+![Control Framework](docs/evidence/03-control-framework.png)
 
 ```text
 ctl.source_system
-        │
 ctl.ingestion_config
-        │
-        ▼
-pl_master_bronze_ingestion
-        │
-        ├── Supplier API
-        ├── Warehouse SQL
-        ├── Store POS
-        ├── E-commerce S3
-        └── Logistics event files
+ctl.watermark_tracker
+ctl.processed_source_object
+ctl.pipeline_run
+ctl.entity_run
 ```
 
-This reduces duplicated orchestration logic and allows new entities to be onboarded primarily through configuration.
+### Responsibilities
+
+**`ctl.source_system`**  
+Defines registered operational source systems.
+
+**`ctl.ingestion_config`**  
+Stores entity-level ingestion metadata and execution configuration.
+
+**`ctl.watermark_tracker`**  
+Maintains incremental extraction state.
+
+**`ctl.processed_source_object`**  
+Tracks previously processed source objects to support idempotent file ingestion.
+
+**`ctl.pipeline_run`**  
+Stores pipeline-level execution telemetry.
+
+**`ctl.entity_run`**  
+Stores entity-level execution telemetry.
+
+Together these tables provide configuration, state management, auditing and operational observability.
 
 ---
 
-## Medallion Architecture
+# Bronze Layer
 
-### Bronze — Raw Ingestion
+The Bronze layer preserves source-aligned data before business transformation.
 
-Bronze preserves source-aligned data with minimal transformation.
+Key principles include:
 
-Responsibilities include:
+- source fidelity
+- traceability
+- replayability
+- incremental ingestion
+- idempotent processing
+- source-specific ingestion strategies
+- operational audit capture
 
-- Source extraction
-- Parameterised ingestion
-- Full/incremental load handling
-- API pagination
-- File ingestion
-- Watermark tracking
-- Run auditing
-- Raw data preservation
+Source-specific child pipelines handle differences between REST APIs, relational databases and file-based sources while the master pipeline remains metadata-driven.
 
-### Silver — Validated & Conformed
+---
 
-Silver transforms raw data into trusted analytical datasets.
+# Silver Layer
 
-Key controls include:
+The Silver layer transforms raw Bronze data into validated, conformed Delta tables.
 
-- Explicit type casting
-- Schema enforcement
-- Standardisation
-- Business-key validation
-- Deduplication
-- Referential-integrity checks
-- Technical audit columns
-- Record hashing
-- Delta `MERGE`
-- Quarantine where appropriate
-- Idempotent reprocessing
+Processing includes:
 
-### Gold — Analytics Model
+- explicit schema handling
+- type casting
+- standardisation
+- duplicate handling
+- business-key validation
+- referential-integrity checks
+- audit columns
+- record hashing
+- quarantine logic
+- Delta MERGE processing
+- incremental/idempotent transformation
 
-Gold provides business-facing dimensional structures optimised for reporting and semantic modelling.
+Selected technical audit columns include:
 
-Implemented dimensions include:
+```text
+_source_system
+_processed_at_utc
+_record_hash
+```
+
+Silver processing is organised by business/source domain rather than implemented as one monolithic notebook.
+
+---
+
+# Silver Data Quality
+
+Data quality is implemented as executable engineering logic rather than relying only on visual inspection.
+
+The validation framework covers areas including:
+
+- duplicate keys
+- null business keys
+- referential integrity
+- cross-table consistency
+- invalid identifiers
+- transformation integrity
+
+Current validated result:
+
+```text
+28 / 28 checks PASS
+```
+
+![Silver Data Quality](docs/evidence/06-silver-data-quality.png)
+
+A failing hard validation is treated as an engineering defect requiring investigation rather than being silently ignored.
+
+---
+
+# Silver Reconciliation
+
+A separate reconciliation framework compares expected/source-equivalent counts with Silver outputs.
+
+Current validated result:
+
+```text
+16 / 16 reconciliation checks PASS
+```
+
+![Silver Reconciliation](docs/evidence/07-silver-reconciliation.png)
+
+Reconciliation provides another control layer beyond schema and row-level data-quality checks.
+
+---
+
+# Gold Analytical Layer
+
+The Gold layer provides business-ready dimensional models for analytics and reporting.
+
+Core analytical areas include:
+
+### Dimensions
 
 - Date
 - Supplier
 - Distribution Centre
-- POS Store
-- E-commerce Store
-- POS Product
-- E-commerce Product
+- Store
+- Product
 - Customer
 - Sales Channel
 
-Implemented facts include:
+### Facts
 
 - Sales
 - Purchase Orders
@@ -201,213 +330,337 @@ Implemented facts include:
 - Logistics Events
 - Supplier Performance
 
----
-
-## Data Quality & Reconciliation
-
-Quality controls are implemented as executable engineering checks rather than relying solely on dashboard-level validation.
-
-Current validated results:
-
-| Validation Layer | Result |
-|---|---:|
-| Silver data-quality checks | **28 / 28 passed** |
-| Silver reconciliation | **16 / 16 passed** |
-| Gold relationship checks | **23 / 23 passed** |
-| Silver → Gold reconciliation | **6 / 6 passed** |
-| Gold monitoring persistence failures | **0** |
-
-Checks cover areas including:
-
-- Null business keys
-- Duplicate primary keys
-- Referential integrity
-- Source/target row reconciliation
-- Invalid timestamps
-- Invalid counts
-- Fact/dimension relationships
-- Cross-domain relationship validation
+The Gold layer is intentionally designed around business processes rather than simply exposing Silver tables directly to reporting.
 
 ---
 
-## Operational Monitoring
+# Operational Monitoring
 
-Pipeline execution is captured at two levels:
+The platform models its own execution telemetry in Gold so that pipeline health can be analysed alongside business data.
+
+Pipeline and entity audit records are treated separately.
+
+The original source `run_status` is preserved.
+
+A separate `monitoring_status` is derived so historical executions left in `RUNNING` state can be classified as `STALE` without rewriting source audit history.
+
+### Pipeline monitoring
+
+Current validated state:
 
 ```text
-Pipeline Run
-    │
-    ├── Entity Run
-    ├── Entity Run
-    └── Entity Run
+109 pipeline runs
+├── 82 SUCCESS
+├── 18 FAILED
+└──  9 STALE
 ```
 
-The Gold monitoring mart currently classifies **152 historical entity-run audit records**:
+### Entity monitoring
 
 ```text
-152 source audit records
-├── 147 valid monitoring records
-└──   5 quarantined records
+204 source entity-run records
+├── 197 valid Gold monitoring records
+│   ├── 139 SUCCESS
+│   ├──  54 STALE
+│   ├──   3 SKIPPED
+│   └──   1 FAILED
+│
+└── 7 quarantined records
 ```
 
-The five records with missing parent pipeline runs are preserved rather than silently deleted or assigned fabricated relationships.
+Entity records whose parent pipeline audit record is unavailable are **quarantined rather than assigned fabricated relationships**.
 
-They are isolated with the rejection reason:
-
-`PARENT_PIPELINE_RUN_NOT_FOUND`
-
-This keeps the curated monitoring model referentially valid while retaining evidence of historical audit anomalies for investigation.
-
----
-
-## Idempotency & Incremental Processing
-
-The platform is designed so that rerunning the same processing window does not create duplicate business records.
-
-Key patterns include:
-
-- Watermarks for incremental extraction
-- Stable business keys
-- Deterministic deduplication
-- Record hashes for change detection
-- Delta Lake `MERGE`
-- Source-to-target reconciliation
-- Explicit processing windows
-
-End-to-end idempotency validation is part of the final platform verification.
-
----
-
-## Data Modelling Decisions
-
-Some source domains intentionally remain separate.
-
-For example, POS and e-commerce stores are **not artificially merged into a single enterprise store dimension** because no authoritative cross-system mapping exists.
-
-The same principle applies to product identities across POS and e-commerce.
-
-This is deliberate: the platform avoids manufacturing master-data relationships that cannot be supported by source-system evidence.
-
-Similarly, operational relationships between certain fact datasets are validated through data-quality controls rather than introducing inappropriate fact-to-fact relationships into the semantic model.
-
----
-
-## Technology Stack
-
-| Area | Technology |
-|---|---|
-| Data Platform | Microsoft Fabric |
-| Distributed Processing | Apache Spark / PySpark |
-| Storage | OneLake / Delta Lake |
-| Transformation | PySpark, Spark SQL, SQL |
-| Orchestration | Microsoft Fabric Data Factory |
-| Supplier System | FastAPI / PostgreSQL |
-| Cloud Sources | AWS S3, Azure Blob Storage |
-| File Source | SharePoint |
-| Warehouse Source | SQL Server |
-| Analytics | Power BI |
-| Version Control | Git / GitHub |
-
----
-
-## End-to-End Orchestration
-
-The platform-level orchestration coordinates source ingestion, transformation and reporting refresh:
+The rejection reason is retained as:
 
 ```text
-BRONZE_SUPPLIER_API
-        ↓
-BRONZE_WAREHOUSE_SQL
-        ↓
-BRONZE_STORE_POS
-        ↓
-BRONZE_ECOMMERCE_S3
-        ↓
-BRONZE_LOGISTICS
-        ↓
-SILVER_PROCESSING
-        ↓
-GOLD_PROCESSING
-        ↓
-REFRESH_SEMANTIC_MODEL
+PARENT_PIPELINE_RUN_NOT_FOUND
 ```
 
-The orchestration is intentionally sequential in the current reference implementation to provide predictable resource utilisation within the available Fabric development capacity.
+Final monitoring persistence validation:
+
+```text
+Duplicate pipeline run IDs:                 0
+Duplicate valid entity run IDs:             0
+Duplicate rejected entity run IDs:          0
+Valid entity parent pipeline orphans:       0
+Valid/rejected entity overlap:              0
+Classification reconciliation difference:  0
+Hard persistence failure count:             0
+
+PASS
+```
+
+![Gold Monitoring Validation](docs/evidence/08-gold-monitoring-validation.png)
+
+This design preserves source truth while still providing operationally useful monitoring classifications.
 
 ---
 
-## Engineering Principles Demonstrated
+# End-to-End Orchestration
 
-This project focuses on engineering decisions rather than maximising the number of technologies used.
+The final orchestration pipeline coordinates the complete analytical workflow.
 
-Core principles include:
+![End-to-End Pipeline](docs/evidence/09-end-to-end-pipeline.png)
 
-1. **Configuration over duplication** — ingestion behaviour is driven through metadata.
-2. **Idempotency by design** — reprocessing should not duplicate business records.
-3. **Data quality as code** — quality controls execute as part of the engineering workflow.
-4. **Reconciliation across boundaries** — important transformations are quantitatively validated.
-5. **Preserve evidence** — invalid audit records are quarantined rather than silently discarded.
-6. **Do not fabricate relationships** — master-data limitations remain explicit.
-7. **Observability is part of the platform** — pipeline and entity execution are modelled for operational analysis.
-8. **Security by design** — credentials and secrets are excluded from source control.
+The execution sequence is:
+
+```text
+Supplier API Bronze
+        ↓
+Warehouse SQL Bronze
+        ↓
+Store POS Bronze
+        ↓
+E-commerce S3 Bronze
+        ↓
+Logistics Bronze
+        ↓
+Silver Processing
+        ↓
+Gold Processing
+        ↓
+Semantic Model Refresh
+```
+
+Sequential execution was intentionally used for this reference implementation to control resource consumption and preserve predictable dependency ordering.
 
 ---
 
-## Repository Structure
+# Semantic Model
+
+The Gold analytical layer is exposed through a governed semantic model.
+
+![Semantic Model](docs/evidence/10-semantic-model.png)
+
+Relationships are based on legitimate business grain and dimensional relationships rather than creating artificial fact-to-fact relationships simply to make validation pass.
+
+The model supports reporting across:
+
+- platform operations
+- executive performance
+- sales
+- procurement
+- supplier performance
+- logistics
+
+---
+
+# Power BI Reporting
+
+The reporting layer contains four focused analytical pages.
+
+## 1. Data Platform Monitoring
+
+![Data Platform Monitoring](docs/evidence/11-monitoring-dashboard.png)
+
+Provides visibility into:
+
+- pipeline success rate
+- failed pipeline runs
+- stale executions
+- average pipeline duration
+- entity execution health
+- ingestion volume
+- pipeline status over time
+- entity-level diagnostics
+
+---
+
+## 2. Executive Overview
+
+![Executive Dashboard](docs/evidence/12-executive-dashboard.png)
+
+Provides senior-level visibility into key commercial and operational performance indicators.
+
+---
+
+## 3. Sales Analytics
+
+![Sales Dashboard](docs/evidence/13-sales-dashboard.png)
+
+Supports analysis of retail sales performance across relevant business dimensions and channels.
+
+---
+
+## 4. Procurement & Supplier Performance
+
+![Procurement and Supplier Performance](docs/evidence/14-procurement-dashboard.png)
+
+Provides visibility into procurement activity, supplier shipments and supplier-performance indicators.
+
+---
+
+# Git & Engineering Workflow
+
+Git and GitHub are used to manage changes to the project rather than editing the stable branch directly for significant changes.
+
+The workflow demonstrated in this repository is:
+
+```text
+main
+  ↓
+feature branch
+  ↓
+implementation
+  ↓
+git add
+  ↓
+commit
+  ↓
+push
+  ↓
+pull request
+  ↓
+diff/security review
+  ↓
+merge into main
+  ↓
+local main synchronisation
+  ↓
+feature branch cleanup
+```
+
+For example, the Gold monitoring implementation was developed on:
+
+```text
+feature/gold-monitoring
+```
+
+and merged into `main` through a Pull Request after validation and review.
+
+![GitHub Pull Request](docs/evidence/15-github-pull-request.png)
+
+This provides traceable change history and isolates feature development from the stable branch.
+
+---
+
+# Technology Stack
+
+### Data Engineering
+
+- Microsoft Fabric
+- Fabric Data Factory
+- Apache Spark
+- PySpark
+- Delta Lake
+- OneLake
+- SQL
+- Python
+
+### Source Integration
+
+- FastAPI
+- PostgreSQL
+- SQL Server
+- SharePoint
+- AWS S3
+- Azure Blob Storage
+- REST APIs
+- JSON
+- CSV
+
+### Analytics
+
+- Fabric Lakehouse
+- Fabric Warehouse
+- dimensional modelling
+- semantic modelling
+- Power BI
+
+### Engineering Practices
+
+- metadata-driven ingestion
+- incremental loading
+- watermarking
+- idempotent processing
+- schema validation
+- data quality
+- reconciliation
+- quarantine handling
+- audit logging
+- operational monitoring
+- Git
+- GitHub
+- feature branches
+- Pull Requests
+
+---
+
+# Repository Structure
 
 ```text
 britmart-retail-data-platform/
-├── docs/                  # Architecture, design decisions and engineering documentation
+│
+├── README.md
+│
+├── docs/
+│   ├── architecture/
+│   └── evidence/
+│
 ├── fabric/
-│   ├── pipelines/         # Pipeline definitions and documentation
-│   ├── notebooks/         # Silver, Gold and monitoring transformations
-│   └── control-framework/ # Metadata and audit framework
-├── sql/                   # Control-table and validation SQL
-├── tests/                 # Data-quality and reconciliation tests
-├── power-bi/              # Semantic-model documentation and report evidence
-├── sample-data/           # Sanitised representative data only
-└── README.md
+│   ├── control-framework/
+│   ├── pipelines/
+│   └── notebooks/
+│       ├── silver/
+│       ├── gold/
+│       └── monitoring/
+│
+├── sql/
+│   └── control-framework/
+│
+├── power-bi/
+│
+└── tests/
 ```
 
-The repository will be populated progressively as final platform validation and documentation are completed.
+The Supplier API is maintained as a separate source-system repository:
+
+[BritMart Supplier API](https://github.com/Mayorpluz1/britmart-supplier-api)
 
 ---
 
-## Security
+# Key Engineering Decisions
 
-No production credentials, API keys, access tokens, passwords or private connection strings are stored in this repository.
+## Metadata over duplicated orchestration
 
-Configuration examples use placeholders or environment variables. Any representative datasets published here are synthetic or sanitised.
+Entity configuration is stored centrally so new ingestion entities can be introduced primarily through metadata rather than repeatedly redesigning the master pipeline.
 
----
+## Preserve source truth
 
-## Project Status
+Original audit statuses are retained even when a separate operational classification such as `STALE` is required.
 
-**Active development / final validation**
+## Quarantine instead of fabrication
 
-Completed:
+Records that cannot satisfy required relationships are quarantined with an explicit reason instead of inventing keys or silently dropping evidence.
 
-- Multi-source Bronze ingestion framework
-- Metadata-driven orchestration
-- Incremental processing patterns
-- Silver transformation layer
-- Silver data-quality framework
-- Silver reconciliation
-- Gold dimensional model
-- Gold data-quality validation
-- Operational monitoring mart
-- Power BI semantic/reporting layer
+## Reconciliation in addition to data quality
 
-In progress:
+Row-level validation alone does not prove completeness. Separate reconciliation controls provide evidence that expected data reached the curated layer.
 
-- Final end-to-end orchestration validation
-- Repeat-window idempotency proof
-- CI/CD implementation and documentation
-- Architecture and data-model diagrams
-- Repository documentation and implementation evidence
+## Source-specific ingestion, common governance
+
+REST APIs, SQL databases and files require different extraction mechanisms, but they share common configuration, audit and monitoring standards.
+
+## Operational monitoring as data
+
+Pipeline and entity execution telemetry is modelled and persisted so the platform itself can be analysed using the same engineering principles as business data.
 
 ---
 
-## Disclaimer
+# Security
 
-BritMart is a **fictional retail organisation** created as a portfolio/reference implementation. The architecture and datasets are designed to demonstrate production-oriented data engineering patterns and do not represent a live BritMart business or client deployment.
+No credentials, passwords, API keys, access tokens or connection strings are intentionally committed to this repository.
+
+Sensitive configuration is kept outside source control.
+
+Screenshots and examples are reviewed before publication to prevent exposure of authentication material.
+
+---
+
+# Portfolio Scope
+
+BritMart is a fictional retail organisation created specifically for this portfolio/reference implementation.
+
+The architecture, source systems, generated datasets, engineering logic, pipelines, transformations, validation controls, monitoring framework and reporting layer were developed to simulate realistic enterprise data-engineering requirements.
+
+The project is intended to demonstrate practical capability in designing and implementing an end-to-end data platform rather than to represent a production system operated by a real company.
